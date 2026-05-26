@@ -1,0 +1,295 @@
+
+version: 2
+
+models:
+
+  # ──────────────────────────────────────────
+  # dim_listings_cleansed
+  # ──────────────────────────────────────────
+  - name: dim_listings_cleansed
+    description: >
+      Cleansed and standardised version of raw Airbnb listings.
+      Minimum nights of 0 are coerced to 1; price is cast to a numeric type.
+    columns:
+      - name: listing_id
+        description: Primary key — unique identifier for the listing.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: listing_name
+        description: Human-readable name of the listing.
+
+      - name: room_type
+        description: Category of accommodation offered.
+        data_tests:
+          - accepted_values:
+              values: ['Entire home/apt', 'Private room', 'Shared room', 'Hotel room']
+
+      - name: minimum_nights
+        description: Minimum number of nights required per booking (always >= 1).
+        data_tests:
+          - positive_values
+
+      - name: host_id
+        description: Foreign key to dim_hosts_cleansed.
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_hosts_cleansed')
+              field: host_id
+
+      - name: price
+        description: Nightly price in USD.
+
+      - name: created_at
+        description: Timestamp when the listing was originally created.
+
+      - name: updated_at
+        description: Timestamp of the most recent update to the listing.
+
+  # ──────────────────────────────────────────
+  # dim_hosts_cleansed
+  # ──────────────────────────────────────────
+  - name: dim_hosts_cleansed
+    description: >
+      Cleansed host dimension. Anonymous hosts (null names) are replaced
+      with the string 'Anonymous'.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: host_id
+        description: Primary key — unique identifier for the host.
+        data_type: integer
+        data_tests:
+          - not_null
+          - unique
+
+      - name: host_name
+        description: Display name of the host ('Anonymous' when originally null).
+        data_type: string
+        data_tests:
+          - not_null
+
+      - name: is_superhost
+        description: Whether the host holds Superhost status ('t' or 'f').
+        data_type: string
+        data_tests:
+          - accepted_values:
+              values: ['t', 'f']
+
+      - name: created_at
+        description: Timestamp when the host account was created.
+        data_type: timestamp
+
+      - name: updated_at
+        description: Timestamp of the most recent update to the host record.
+        data_type: timestamp
+
+  # ──────────────────────────────────────────
+  # dim_listing_w_hosts
+  # ──────────────────────────────────────────
+  - name: dim_listing_w_hosts
+    description: >
+      Wide dimension that joins dim_listings_cleansed with dim_hosts_cleansed,
+      providing a single denormalised view of listings with their host details.
+    columns:
+      - name: listing_id
+        description: Primary key — unique identifier for the listing.
+        data_tests:
+          - not_null
+          - unique
+
+      - name: listing_name
+        description: Human-readable name of the listing.
+
+      - name: room_type
+        description: Category of accommodation offered.
+
+      - name: minimum_nights
+        description: Minimum number of nights required per booking.
+
+      - name: price
+        description: Nightly price in USD.
+
+      - name: host_id
+        description: Foreign key — identifier of the host.
+        data_tests:
+          - not_null
+
+      - name: host_name
+        description: Display name of the host.
+
+      - name: host_is_superhost
+        description: Whether the host holds Superhost status ('t' or 'f').
+
+      - name: created_at
+        description: Timestamp when the listing was originally created.
+
+      - name: updated_at
+        description: Most recent update timestamp across listing and host records.
+
+  # ──────────────────────────────────────────
+  # fct_reviews
+  # ──────────────────────────────────────────
+  - name: fct_reviews
+    description: >
+      Fact table of Airbnb guest reviews. Only records with non-null review
+      text are included. Loaded incrementally by review_date.
+    columns:
+      - name: listing_id
+        description: Foreign key to dim_listings_cleansed.
+        data_tests:
+          - not_null
+
+      - name: review_date
+        description: Date the review was submitted.
+        data_tests:
+          - not_null
+
+      - name: reviewer_name
+        description: Name of the guest who wrote the review.
+        data_tests:
+          - not_null
+
+      - name: review_text
+        description: Full text of the guest review.
+        data_tests:
+          - not_null
+
+      - name: review_sentiment
+        description: Sentiment classification derived from the review text.
+        data_tests:
+          - accepted_values:
+              values: ['positive', 'negative', 'neutral']
+
+  # ──────────────────────────────────────────
+  # mart_fullmoon_reviews
+  # ──────────────────────────────────────────
+  - name: mart_fullmoon_reviews
+    description: >
+      Marketing mart that enriches fct_reviews with a flag indicating whether
+      each review was written the night after a full moon.
+    columns:
+      - name: is_full_moon
+        description: >
+          'full moon' when the review was written the day after a full moon,
+          'not full moon' otherwise.
+        data_tests:
+          - accepted_values:
+              values: ['full moon', 'not full moon']
+
+  # ──────────────────────────────────────────
+  # SCD Type 1 — Overwrite (no history)
+  # ──────────────────────────────────────────
+  - name: dim_listings_scd1
+    description: >
+      SCD Type 1: only the current state of each listing is retained.
+      Every dbt run overwrites previous values. Alias over dim_listings_cleansed.
+    columns:
+      - name: listing_id
+        description: Primary key.
+        data_tests:
+          - not_null
+          - unique
+
+  # ──────────────────────────────────────────
+  # SCD Type 2 — Add new row (full history)
+  # ──────────────────────────────────────────
+  - name: dim_listings_scd2
+    description: >
+      SCD Type 2: a new row is inserted for every attribute change.
+      The previous row is closed with a valid_to timestamp.
+      is_current = TRUE marks the active version. Powered by the
+      scd_raw_listings snapshot.
+    columns:
+      - name: surrogate_key
+        description: Unique key per listing version (dbt_scd_id from snapshot).
+        data_tests:
+          - not_null
+          - unique
+      - name: listing_id
+        description: Natural key — identifies the listing across all versions.
+        data_tests:
+          - not_null
+      - name: valid_from
+        description: Timestamp when this version became active.
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: Timestamp when this version was superseded. NULL = currently active.
+      - name: is_current
+        description: TRUE for the active version of each listing.
+
+  # ──────────────────────────────────────────
+  # SCD Type 3 — Add new column (current + previous)
+  # ──────────────────────────────────────────
+  - name: dim_listings_scd3
+    description: >
+      SCD Type 3: stores the current and previous value of tracked attributes
+      (price and room_type) in separate columns. Only one level of history
+      is available. Contains only currently active listings.
+    columns:
+      - name: listing_id
+        description: Primary key.
+        data_tests:
+          - not_null
+          - unique
+      - name: current_price
+        description: The listing price as of the most recent change.
+      - name: previous_price
+        description: The listing price before the most recent change. NULL if never changed.
+      - name: current_room_type
+        description: The room type as of the most recent change.
+      - name: previous_room_type
+        description: The room type before the most recent change. NULL if never changed.
+      - name: price_has_changed
+        description: TRUE when current_price differs from previous_price.
+
+  # ──────────────────────────────────────────
+  # SCD Type 4 — Separate history table (current dim)
+  # ──────────────────────────────────────────
+  - name: dim_listings_scd4
+    description: >
+      SCD Type 4 (current dimension): contains only the active record for
+      each listing. Carries a history_key that links to
+      dim_listings_scd4_history for full audit trail queries.
+    columns:
+      - name: history_key
+        description: FK to dim_listings_scd4_history — identifies the active version row.
+        data_tests:
+          - not_null
+          - unique
+      - name: listing_id
+        description: Natural key.
+        data_tests:
+          - not_null
+          - unique
+
+  # ──────────────────────────────────────────
+  # SCD Type 4 — Separate history table (history)
+  # ──────────────────────────────────────────
+  - name: dim_listings_scd4_history
+    description: >
+      SCD Type 4 (history table): stores ALL historical versions of every
+      listing. Open-ended records use CURRENT_TIMESTAMP as valid_to so that
+      range queries work uniformly. Join to dim_listings_scd4 via history_key.
+    columns:
+      - name: history_key
+        description: Primary key — unique identifier for each listing version.
+        data_tests:
+          - not_null
+          - unique
+      - name: listing_id
+        description: Natural key — identifies the listing across versions.
+        data_tests:
+          - not_null
+      - name: valid_from
+        description: When this version became active.
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: When this version ended (CURRENT_TIMESTAMP for active rows).
+      - name: is_current
+        description: TRUE for the currently active version of each listing.
