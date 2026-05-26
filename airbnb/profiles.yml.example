@@ -1,0 +1,39 @@
+# Copy this file to profiles.yml and set the environment variables below.
+# profiles.yml is listed in .gitignore and should NEVER be committed.
+#
+# Required environment variables:
+#   SNOWFLAKE_ACCOUNT              e.g. pzqxgfi-xy12345
+#   SNOWFLAKE_USER                 e.g. dbt
+#   SNOWFLAKE_PRIVATE_KEY          multi-line PEM string (use quotes)
+#   SNOWFLAKE_PRIVATE_KEY_PASSPHRASE
+#
+# Optional (defaults shown):
+#   SNOWFLAKE_ROLE                 TRANSFORM
+#   SNOWFLAKE_DATABASE             AIRBNB
+#   SNOWFLAKE_WAREHOUSE            COMPUTE_WH
+
+airbnb:
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'TRANSFORM') }}"
+      private_key: "{{ env_var('SNOWFLAKE_PRIVATE_KEY') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'AIRBNB') }}"
+      schema: DEV
+      threads: 4
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'COMPUTE_WH') }}"
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'TRANSFORM') }}"
+      private_key: "{{ env_var('SNOWFLAKE_PRIVATE_KEY') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'AIRBNB') }}"
+      schema: PROD
+      threads: 8
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'COMPUTE_WH') }}"
+  target: dev

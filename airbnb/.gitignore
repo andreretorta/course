@@ -1,0 +1,7 @@
+
+target/
+dbt_packages/
+logs/
+
+# Credentials — NEVER commit real profiles
+profiles.yml
